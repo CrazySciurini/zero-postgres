@@ -2,7 +2,7 @@
 name = "zero-postgres-derive"
 version = "0.2.0"
 edition = "2024"
-license = "MIT"
+license = "BlueOak-1.0.0"
 description = "Derive macros for zero-postgres"
 repository = "https://github.com/elbaro/zero-postgres"
 

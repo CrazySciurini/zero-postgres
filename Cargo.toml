@@ -2,7 +2,7 @@
 name = "zero-postgres"
 version = "0.9.0"
 edition = "2024"
-license = "MIT"
+license = "BlueOak-1.0.0"
 description = "A high-performance PostgreSQL client"
 repository = "https://github.com/elbaro/zero-postgres"
 keywords = ["postgres", "postgresql", "database", "sql", "async"]
