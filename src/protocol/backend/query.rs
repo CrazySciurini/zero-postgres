@@ -238,13 +238,14 @@ impl<'a> CommandComplete<'a> {
         // - "UPDATE 10"
         // - "DELETE 3"
         // - "COPY 5"
-        let mut iter = self.tag.split_whitespace();
-        match iter.next()? {
-            "SELECT" | "UPDATE" | "DELETE" | "COPY" | "MOVE" | "FETCH" => (),
-            "INSERT" => _ = iter.next(), // Skip oid
+        let mut fields = self.tag.split_whitespace();
+        let count_index = match fields.next()? {
+            // "INSERT oid rows"; the OID is always 0 since PostgreSQL 12.
+            "INSERT" => 1,
+            "SELECT" | "UPDATE" | "DELETE" | "COPY" | "MOVE" | "FETCH" => 0,
             _ => return None,
-        }
-        iter.next()?.parse().ok()
+        };
+        fields.nth(count_index)?.parse().ok()
     }
 
     /// Get the command name from the tag.
@@ -261,5 +262,43 @@ impl EmptyQueryResponse {
     /// Parse an EmptyQueryResponse message from payload bytes.
     pub fn parse(_payload: &[u8]) -> Result<Self> {
         Ok(Self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rows_affected(tag: &str) -> Option<u64> {
+        CommandComplete { tag }.rows_affected()
+    }
+
+    #[test]
+    fn rows_affected_reads_trailing_count() {
+        assert_eq!(rows_affected("SELECT 5"), Some(5));
+        assert_eq!(rows_affected("INSERT 0 1"), Some(1));
+        assert_eq!(rows_affected("UPDATE 10"), Some(10));
+        assert_eq!(rows_affected("DELETE 3"), Some(3));
+        assert_eq!(rows_affected("COPY 0"), Some(0));
+        assert_eq!(rows_affected("MOVE 7"), Some(7));
+        assert_eq!(rows_affected("FETCH 2"), Some(2));
+        assert_eq!(rows_affected("SELECT 18446744073709551615"), Some(u64::MAX));
+    }
+
+    #[test]
+    fn rows_affected_ignores_trailing_whitespace() {
+        assert_eq!(rows_affected("SELECT 5 "), Some(5));
+        assert_eq!(rows_affected("INSERT 0 1 "), Some(1));
+    }
+
+    #[test]
+    fn rows_affected_rejects_other_tags() {
+        assert_eq!(rows_affected("CREATE TABLE"), None);
+        assert_eq!(rows_affected("BEGIN"), None);
+        assert_eq!(rows_affected("SELECT"), None);
+        assert_eq!(rows_affected("SELECT many"), None);
+        assert_eq!(rows_affected("SELECT 18446744073709551616"), None);
+        assert_eq!(rows_affected("INSERT 1"), None);
+        assert_eq!(rows_affected(""), None);
     }
 }

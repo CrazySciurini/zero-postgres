@@ -21,27 +21,29 @@ fn get_conn() -> Result<Conn, Error> {
     Conn::new(db_url.as_str())
 }
 
+/// Statements the server rejects, with the SQLSTATE each must report.
+/// Covers errors raised during Parse (42P01, 42703) and during Execute (22012).
+const REJECTED: [(&str, &str); 3] = [
+    ("SELECT $1::int FROM missing_table", "42P01"),
+    ("SELECT missing_column, $1::int", "42703"),
+    ("SELECT 1 / $1::int", "22012"),
+];
+
 #[test]
-fn exec_drop_reusable_after_server_error() -> Result<(), Error> {
+fn server_errors_leave_connection_usable() -> Result<(), Error> {
     let mut conn = get_conn()?;
 
-    let first_err = conn
-        .exec_drop("SELECT 1 / $1", (0_i32,))
-        .expect_err("division by zero should fail");
-    assert!(
-        first_err.to_string().contains("division by zero"),
-        "unexpected first error: {first_err}"
-    );
+    for (sql, sqlstate) in REJECTED {
+        let err = conn.exec_drop(sql, (0_i32,)).expect_err(sql);
+        assert_eq!(err.sqlstate(), Some(sqlstate), "{sql}: {err}");
+        let rows: Vec<(i32,)> = conn.exec_collect("SELECT $1::int", (7_i32,))?;
+        assert_eq!(rows, [(7,)]);
+    }
 
-    let second_err = conn
-        .exec_drop("SELECT 1 / $1", (0_i32,))
-        .expect_err("division by zero should fail again");
-    assert!(
-        second_err.to_string().contains("division by zero"),
-        "unexpected second error (protocol desync?): {second_err}"
-    );
-
-    let rows: Vec<(i32,)> = conn.exec_collect("SELECT $1::int", (42_i32,))?;
-    assert_eq!(rows[0].0, 42);
+    let err = conn
+        .query_drop("SELECT * FROM missing_table")
+        .expect_err("simple query should fail");
+    assert_eq!(err.sqlstate(), Some("42P01"), "{err}");
+    conn.query_drop("SELECT 1")?;
     Ok(())
 }
