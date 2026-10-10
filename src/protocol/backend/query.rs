@@ -229,7 +229,7 @@ impl<'a> CommandComplete<'a> {
 
     /// Parse the number of rows affected from the command tag.
     ///
-    /// Returns `Some(count)` for commands like SELECT, INSERT, UPDATE, DELETE.
+    /// Returns `Some(count)` for commands like SELECT, INSERT, UPDATE, DELETE, MERGE.
     /// Returns `None` for other commands or parse failures.
     pub fn rows_affected(&self) -> Option<u64> {
         // Command tags are like:
@@ -237,12 +237,13 @@ impl<'a> CommandComplete<'a> {
         // - "INSERT 0 1" (oid, rows)
         // - "UPDATE 10"
         // - "DELETE 3"
+        // - "MERGE 4"
         // - "COPY 5"
         let mut fields = self.tag.split_whitespace();
         let count_index = match fields.next()? {
             // "INSERT oid rows"; the OID is always 0 since PostgreSQL 12.
             "INSERT" => 1,
-            "SELECT" | "UPDATE" | "DELETE" | "COPY" | "MOVE" | "FETCH" => 0,
+            "SELECT" | "UPDATE" | "DELETE" | "MERGE" | "COPY" | "MOVE" | "FETCH" => 0,
             _ => return None,
         };
         fields.nth(count_index)?.parse().ok()
@@ -279,6 +280,7 @@ mod tests {
         assert_eq!(rows_affected("INSERT 0 1"), Some(1));
         assert_eq!(rows_affected("UPDATE 10"), Some(10));
         assert_eq!(rows_affected("DELETE 3"), Some(3));
+        assert_eq!(rows_affected("MERGE 4"), Some(4));
         assert_eq!(rows_affected("COPY 0"), Some(0));
         assert_eq!(rows_affected("MOVE 7"), Some(7));
         assert_eq!(rows_affected("FETCH 2"), Some(2));
