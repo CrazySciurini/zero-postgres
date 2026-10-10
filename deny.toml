@@ -5,7 +5,6 @@ allow = [
     "Apache-2.0",
     "MIT",
     "Unicode-3.0",
-    "Zlib",
 ]
 
 [advisories]
