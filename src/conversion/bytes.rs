@@ -101,10 +101,7 @@ fn decode_hex(hex: &[u8]) -> Result<Vec<u8>> {
     }
 
     let mut result = Vec::with_capacity(hex.len() >> 1);
-    for pair in hex.chunks_exact(2) {
-        let &[hi, lo] = pair else {
-            return Err(Error::Decode("invalid hex length".into()));
-        };
+    for &[hi, lo] in hex.as_chunks::<2>().0 {
         let high = HEX_LOOKUP[hi as usize];
         let low = HEX_LOOKUP[lo as usize];
         if (high | low) > 0x0F {
