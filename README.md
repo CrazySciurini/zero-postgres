@@ -40,9 +40,3 @@ Inserting 10,000 rows using prepared statements (average of 10 iterations):
 Run benchmarks: `cargo run --release --example bench_zero_sync`
 
 See also [Diesel Benchmarks](https://github.com/diesel-rs/metrics).
-
-## License
-
-Licensed under the [Blue Oak Model License 1.0.0](https://blueoakcouncil.org/license/1.0.0).
-
-By submitting a pull request, you agree that your contribution is licensed under the Blue Oak Model License 1.0.0. You also grant the project maintainer a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, modify, sublicense, and relicense your contribution under any other terms. You keep the copyright to your contribution, and you confirm that you have the right to submit it under these terms.
