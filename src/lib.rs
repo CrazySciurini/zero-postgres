@@ -7,37 +7,7 @@
 
 //! A high-performance PostgreSQL client library.
 //!
-//! # Features
-//!
-//! - **Zero-copy parsing**: Message payloads are parsed directly from the read buffer
-//! - **Sans-I/O state machines**: Protocol logic is separated from I/O
-//! - **Sync and async APIs**: Choose between synchronous and tokio-based async
-//! - **Full protocol support**: Simple query, extended query, COPY, pipelining
-//!
-//! # Example
-//!
-//! ```no_run
-//! use zero_postgres::sync::Conn;
-//! use zero_postgres::Opts;
-//!
-//! fn main() -> zero_postgres::Result<()> {
-//!     let opts = Opts {
-//!         host: "localhost".into(),
-//!         user: "postgres".into(),
-//!         database: Some("mydb".into()),
-//!         password: Some("secret".into()),
-//!         ..Default::default()
-//!     };
-//!
-//!     let mut conn = Conn::new(opts)?;
-//!
-//!     let rows: Vec<(i32,)> = conn.query_collect("SELECT 1 AS num")?;
-//!     println!("Rows: {:?}", rows);
-//!
-//!     conn.close()?;
-//!     Ok(())
-//! }
-//! ```
+//! [User Guide](https://elbaro.github.io/zero-postgres/)
 
 // private
 mod buffer_pool;
