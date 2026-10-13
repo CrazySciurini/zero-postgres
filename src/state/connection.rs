@@ -8,8 +8,8 @@ use crate::protocol::backend::{
 };
 use crate::protocol::frontend::auth::{ScramClient, md5_password};
 use crate::protocol::frontend::{
-    startup::write_ssl_request, write_password, write_sasl_initial_response, write_sasl_response,
-    write_startup,
+    startup::{PROTOCOL_VERSION_3_0, PROTOCOL_VERSION_3_2, write_ssl_request},
+    write_password, write_sasl_initial_response, write_sasl_response, write_startup,
 };
 use crate::protocol::types::TransactionStatus;
 
@@ -155,15 +155,26 @@ impl ConnectionStateMachine {
     fn handle_auth_message(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
 
-        // Handle NegotiateProtocolVersion - server doesn't support our protocol version
         if type_byte == msg_type::NEGOTIATE_PROTOCOL_VERSION {
             let negotiate = NegotiateProtocolVersion::parse(&buffer_set.read_buffer)?;
-            // Server sends the newest minor version it supports (0 for 3.0, 1 for 3.1, etc.)
-            return Err(Error::LibraryBug(format!(
-                "Server does not support protocol 3.2 (requires PostgreSQL 17+). \
-                 Server supports protocol 3.{}. Unrecognized options: {:?}",
-                negotiate.newest_minor_version, negotiate.unrecognized_options
-            )));
+            if !matches!(
+                negotiate.newest_version,
+                PROTOCOL_VERSION_3_0 | PROTOCOL_VERSION_3_2
+            ) {
+                return Err(Error::Unsupported(format!(
+                    "Server offered protocol version {}.{}; only 3.0 and 3.2 are supported",
+                    negotiate.newest_version >> 16,
+                    negotiate.newest_version & 0xFFFF
+                )));
+            }
+            if !negotiate.unrecognized_options.is_empty() {
+                return Err(Error::Unsupported(format!(
+                    "Server rejected protocol options: {:?}",
+                    negotiate.unrecognized_options
+                )));
+            }
+            self.state = State::WaitingAuth;
+            return Ok(Action::ReadMessage);
         }
 
         if type_byte != msg_type::AUTHENTICATION {
@@ -432,5 +443,53 @@ impl StateMachine for ConnectionStateMachine {
 
     fn transaction_status(&self) -> TransactionStatus {
         self.transaction_status
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn step_negotiate(newest_version: i32, options: &[&str]) -> Result<Action> {
+        let mut machine = ConnectionStateMachine::new(Opts::default());
+        machine.state = State::WaitingAuth;
+        let mut buffer_set = BufferSet::new();
+        buffer_set.type_byte = msg_type::NEGOTIATE_PROTOCOL_VERSION;
+        buffer_set
+            .read_buffer
+            .extend_from_slice(&newest_version.to_be_bytes());
+        buffer_set
+            .read_buffer
+            .extend_from_slice(&(options.len() as i32).to_be_bytes());
+        for option in options {
+            buffer_set.read_buffer.extend_from_slice(option.as_bytes());
+            buffer_set.read_buffer.push(0);
+        }
+        machine.step(&mut buffer_set)
+    }
+
+    #[test]
+    fn negotiate_accepts_3_0() {
+        assert!(matches!(
+            step_negotiate(PROTOCOL_VERSION_3_0, &[]),
+            Ok(Action::ReadMessage)
+        ));
+    }
+
+    #[test]
+    fn negotiate_rejects_3_1() {
+        let err = step_negotiate(0x0003_0001, &[]).unwrap_err();
+        assert!(err.to_string().contains("3.1"), "{err}");
+    }
+
+    #[test]
+    fn negotiate_rejects_other_major() {
+        let err = step_negotiate(0x0002_0000, &[]).unwrap_err();
+        assert!(err.to_string().contains("2.0"), "{err}");
+    }
+
+    #[test]
+    fn negotiate_rejects_unrecognized_options() {
+        step_negotiate(PROTOCOL_VERSION_3_0, &["_pq_.unknown"]).unwrap_err();
     }
 }

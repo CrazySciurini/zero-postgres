@@ -195,8 +195,8 @@ impl<'a> NotificationResponse<'a> {
 /// NegotiateProtocolVersion message - server doesn't support requested protocol features.
 #[derive(Debug, Clone)]
 pub struct NegotiateProtocolVersion<'a> {
-    /// Newest minor protocol version supported
-    pub newest_minor_version: u32,
+    /// Newest protocol version the server supports, as `major << 16 | minor`.
+    pub newest_version: i32,
     /// Unrecognized protocol options
     pub unrecognized_options: Vec<&'a str>,
 }
@@ -204,7 +204,7 @@ pub struct NegotiateProtocolVersion<'a> {
 impl<'a> NegotiateProtocolVersion<'a> {
     /// Parse a NegotiateProtocolVersion message from payload bytes.
     pub fn parse(payload: &'a [u8]) -> Result<Self> {
-        let (newest_minor_version, rest) = read_u32(payload)?;
+        let (newest_version, rest) = read_i32(payload)?;
         let (num_options, mut rest) = read_u32(rest)?;
 
         let mut unrecognized_options = Vec::with_capacity(num_options as usize);
@@ -215,7 +215,7 @@ impl<'a> NegotiateProtocolVersion<'a> {
         }
 
         Ok(Self {
-            newest_minor_version,
+            newest_version,
             unrecognized_options,
         })
     }
