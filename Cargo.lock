@@ -1206,17 +1206,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "no-panic"
-version = "0.1.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc80370b4544f28ffa317e3c3474ee3ecbfe269196c01ae657d9f837a7d944a1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2107,19 +2096,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
  "pin-project-lite",
- "tracing-attributes",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-attributes"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -2491,7 +2468,6 @@ dependencies = [
  "md-5",
  "memchr",
  "native-tls",
- "no-panic",
  "pbkdf2",
  "postgres",
  "rand 0.10.3",
@@ -2504,7 +2480,6 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tokio-postgres",
- "tracing",
  "url",
  "uuid",
  "zero-postgres-derive",

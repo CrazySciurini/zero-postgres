@@ -48,7 +48,6 @@ pbkdf2 = { version = "0.13", features = ["hmac"] }
 base64 = "0.23"
 md-5 = "0.11"
 rand = "0.10"
-tracing = { version = "0.1", features = ["release_max_level_warn"] }
 memchr = "2"
 simdutf8 = "0.1"
 url = "2"
@@ -61,7 +60,6 @@ chrono = { version = "0.4", optional = true, default-features = false, features 
   "clock",
 ] }
 rust_decimal = { version = "1", optional = true }
-no-panic = "0.1"
 log = "0.4"
 zero-postgres-derive = { version = "0.2", path = "zero-postgres-derive", optional = true }
 diesel = { version = "2.3", features = [
