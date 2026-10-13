@@ -4,6 +4,7 @@ A high-performance PostgreSQL client library for Rust.
 
 [API Reference (docs.rs)](https://docs.rs/zero-postgres) | [User Guide](https://elbaro.github.io/zero-postgres/)
 
+Supported versions: PostgreSQL 10.2 - 18.x
 Python binding: [pyro-postgres](https://github.com/elbaro/pyro-postgres/).
 
 
