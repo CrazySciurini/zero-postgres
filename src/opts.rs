@@ -115,6 +115,10 @@ impl TryFrom<&Url> for Opts {
     ///
     /// Format: `(pg|postgres|postgresql)://[user[:password]@]host[:port][/database][?param1=value1&param2=value2&..]`
     ///
+    /// The user, password and database are percent-decoded, so characters such as
+    /// `/`, `#` and `?` can be written as `%2F`, `%23` and `%3F`. A literal `%`
+    /// followed by two hex digits must be written as `%25`.
+    ///
     /// Supported query parameters:
     /// - `tls_mode`: disable, prefer, require
     /// - `application_name`: application name
@@ -132,15 +136,12 @@ impl TryFrom<&Url> for Opts {
         let mut opts = Opts {
             host: url.host_str().unwrap_or("localhost").to_string(),
             port: url.port().unwrap_or(5432),
-            user: url.username().to_string(),
-            password: url.password().map(|s| s.to_string()),
-            database: url.path().strip_prefix('/').and_then(|s| {
-                if s.is_empty() {
-                    None
-                } else {
-                    Some(s.to_string())
-                }
-            }),
+            user: percent_decode(url.username())?,
+            password: url.password().map(percent_decode).transpose()?,
+            database: match url.path().strip_prefix('/') {
+                Some(s) if !s.is_empty() => Some(percent_decode(s)?),
+                _ => None,
+            },
             ..Opts::default()
         };
 
@@ -200,5 +201,50 @@ impl TryFrom<&str> for Opts {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let url = Url::parse(s).map_err(|e| Error::InvalidUsage(format!("Invalid URL: {}", e)))?;
         Self::try_from(&url)
+    }
+}
+
+/// Decodes a percent-encoded URL component such as the user or password.
+///
+/// `Url` keeps these components encoded, and it encodes some raw characters
+/// itself, so `p@ss` comes back from `Url::password()` as `p%40ss`.
+fn percent_decode(s: &str) -> Result<String, Error> {
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8()
+        .map(|s| s.into_owned())
+        .map_err(|e| Error::InvalidUsage(format!("Invalid UTF-8 in URL: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_encoded_credentials_and_database() {
+        let opts = Opts::try_from("postgres://al%40ice:p%40ss%2Fw%3Frd@localhost/my%20db").unwrap();
+        assert_eq!(opts.user, "al@ice");
+        assert_eq!(opts.password.as_deref(), Some("p@ss/w?rd"));
+        assert_eq!(opts.database.as_deref(), Some("my db"));
+    }
+
+    #[test]
+    fn decodes_raw_at_sign_in_password() {
+        // Url re-encodes the raw '@' as %40.
+        let opts = Opts::try_from("postgres://alice:p@ss@localhost/db").unwrap();
+        assert_eq!(opts.password.as_deref(), Some("p@ss"));
+        assert_eq!(opts.host, "localhost");
+    }
+
+    #[test]
+    fn keeps_plain_values() {
+        let opts = Opts::try_from("postgres://alice:secret@localhost/db").unwrap();
+        assert_eq!(opts.user, "alice");
+        assert_eq!(opts.password.as_deref(), Some("secret"));
+        assert_eq!(opts.database.as_deref(), Some("db"));
+    }
+
+    #[test]
+    fn rejects_invalid_utf8() {
+        Opts::try_from("postgres://alice:%FF@localhost/db").unwrap_err();
     }
 }

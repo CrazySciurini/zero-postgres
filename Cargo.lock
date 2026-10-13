@@ -2469,6 +2469,7 @@ dependencies = [
  "memchr",
  "native-tls",
  "pbkdf2",
+ "percent-encoding",
  "postgres",
  "rand 0.10.3",
  "rust_decimal",
