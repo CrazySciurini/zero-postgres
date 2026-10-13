@@ -24,7 +24,11 @@ impl FromWireValue<'_> for time::Date {
             Error::Decode(format!("invalid Date length: {}", bytes.len()))
         })?;
         let pg_days = i32::from_be_bytes(arr);
-        time::Date::from_julian_day(pg_days + PG_EPOCH_JULIAN_DAY)
+        // 'infinity' is i32::MAX, which overflows when shifted to the Julian epoch.
+        let julian_day = pg_days
+            .checked_add(PG_EPOCH_JULIAN_DAY)
+            .ok_or_else(|| Error::Decode(format!("date out of range: {} days", pg_days)))?;
+        time::Date::from_julian_day(julian_day)
             .map_err(|e| Error::Decode(format!("invalid date: {}", e)))
     }
 }
@@ -262,6 +266,12 @@ mod tests {
         assert_eq!(date.year(), 2024);
         assert_eq!(date.month() as u8, 1);
         assert_eq!(date.day(), 15);
+    }
+
+    #[test]
+    fn date_binary_infinity() {
+        time::Date::from_binary(oid::DATE, &i32::MAX.to_be_bytes()).unwrap_err();
+        time::Date::from_binary(oid::DATE, &i32::MIN.to_be_bytes()).unwrap_err();
     }
 
     #[test]
