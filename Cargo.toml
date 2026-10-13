@@ -7,6 +7,7 @@ description = "A high-performance PostgreSQL client"
 repository = "https://github.com/elbaro/zero-postgres"
 keywords = ["postgres", "postgresql", "database", "sql", "async"]
 categories = ["database"]
+include = ["/src/**/*", "/README.md", "/LICENSE.md", "/CHANGELOG.md"]
 
 [package.metadata.docs.rs]
 all-features = true
