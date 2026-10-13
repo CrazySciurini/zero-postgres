@@ -177,7 +177,12 @@ fn into_diesel_error(e: crate::Error) -> diesel::result::Error {
                 "23502" => diesel::result::DatabaseErrorKind::NotNullViolation,
                 "23514" => diesel::result::DatabaseErrorKind::CheckViolation,
                 "40001" => diesel::result::DatabaseErrorKind::SerializationFailure,
-                "23P01" => diesel::result::DatabaseErrorKind::ReadOnlyTransaction,
+                "23P01" => diesel::result::DatabaseErrorKind::ExclusionViolation,
+                "23001" => diesel::result::DatabaseErrorKind::RestrictViolation,
+                "25006" => diesel::result::DatabaseErrorKind::ReadOnlyTransaction,
+                "08000" | "08001" | "08004" | "08006" => {
+                    diesel::result::DatabaseErrorKind::ClosedConnection
+                }
                 _ => diesel::result::DatabaseErrorKind::Unknown,
             };
             diesel::result::Error::DatabaseError(

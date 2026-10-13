@@ -302,6 +302,49 @@ fn check_violation() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
+fn exclusion_violation() -> Result<(), Box<dyn std::error::Error>> {
+    let mut conn = get_conn()?;
+    let table = unique_table_name();
+    conn.batch_execute(&format!(
+        "CREATE TEMP TABLE {} (id SERIAL PRIMARY KEY, during INT4RANGE NOT NULL, \
+         EXCLUDE USING gist (during WITH &&))",
+        table
+    ))?;
+
+    diesel::sql_query(format!("INSERT INTO {} (during) VALUES ('[1,10)')", table))
+        .execute(&mut conn)?;
+
+    let result = diesel::sql_query(format!("INSERT INTO {} (during) VALUES ('[5,15)')", table))
+        .execute(&mut conn);
+
+    match result {
+        Err(diesel::result::Error::DatabaseError(kind, _)) => {
+            assert_eq!(kind, diesel::result::DatabaseErrorKind::ExclusionViolation);
+        }
+        other => panic!("Expected ExclusionViolation, got {:?}", other),
+    }
+    Ok(())
+}
+
+#[test]
+fn read_only_transaction() -> Result<(), Box<dyn std::error::Error>> {
+    let mut conn = get_conn()?;
+    let table = unique_table_name();
+    // Temp tables stay writable in read-only transactions, so use a regular table.
+    conn.batch_execute("SET default_transaction_read_only = on")?;
+
+    let result = diesel::sql_query(format!("CREATE TABLE {} (id INT)", table)).execute(&mut conn);
+
+    match result {
+        Err(diesel::result::Error::DatabaseError(kind, _)) => {
+            assert_eq!(kind, diesel::result::DatabaseErrorKind::ReadOnlyTransaction);
+        }
+        other => panic!("Expected ReadOnlyTransaction, got {:?}", other),
+    }
+    Ok(())
+}
+
 // --- Error info preservation ---
 
 #[test]
