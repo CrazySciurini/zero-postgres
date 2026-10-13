@@ -46,7 +46,6 @@ impl FromWireValue<'_> for NaiveDate {
             Error::Decode(format!("invalid Date length: {}", bytes.len()))
         })?;
         let pg_days = i32::from_be_bytes(arr);
-        // 'infinity' and '-infinity' (i32::MAX and i32::MIN) fall outside chrono's range.
         chrono::TimeDelta::try_days(i64::from(pg_days))
             .and_then(|days| PG_EPOCH.checked_add_signed(days))
             .ok_or_else(|| Error::Decode(format!("date out of range: {} days", pg_days)))

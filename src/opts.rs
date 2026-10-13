@@ -204,10 +204,6 @@ impl TryFrom<&str> for Opts {
     }
 }
 
-/// Decodes a percent-encoded URL component such as the user or password.
-///
-/// `Url` keeps these components encoded, and it encodes some raw characters
-/// itself, so `p@ss` comes back from `Url::password()` as `p%40ss`.
 fn percent_decode(s: &str) -> Result<String, Error> {
     percent_encoding::percent_decode_str(s)
         .decode_utf8()
@@ -229,7 +225,6 @@ mod tests {
 
     #[test]
     fn decodes_raw_at_sign_in_password() {
-        // Url re-encodes the raw '@' as %40.
         let opts = Opts::try_from("postgres://alice:p@ss@localhost/db").unwrap();
         assert_eq!(opts.password.as_deref(), Some("p@ss"));
         assert_eq!(opts.host, "localhost");
