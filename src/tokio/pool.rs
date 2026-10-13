@@ -57,7 +57,7 @@ impl Pool {
         Ok(PooledConn {
             conn: ManuallyDrop::new(conn),
             pool: Arc::clone(self),
-            _permit: permit,
+            permit,
         })
     }
 
@@ -75,7 +75,7 @@ impl Pool {
 pub struct PooledConn {
     pool: Arc<Pool>,
     conn: ManuallyDrop<Conn>,
-    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    permit: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 impl Deref for PooledConn {
@@ -96,8 +96,10 @@ impl Drop for PooledConn {
         // SAFETY: conn is never accessed after this
         let conn = unsafe { ManuallyDrop::take(&mut self.conn) };
         let pool = Arc::clone(&self.pool);
+        let permit = self.permit.take();
         tokio::spawn(async move {
             pool.check_in(conn).await;
+            drop(permit);
         });
     }
 }
