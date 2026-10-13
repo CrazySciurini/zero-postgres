@@ -46,10 +46,10 @@ impl FromWireValue<'_> for NaiveDate {
             Error::Decode(format!("invalid Date length: {}", bytes.len()))
         })?;
         let pg_days = i32::from_be_bytes(arr);
-        PG_EPOCH
-            .checked_add_days(chrono::Days::new(pg_days.max(0) as u64))
-            .or_else(|| PG_EPOCH.checked_sub_days(chrono::Days::new((-pg_days).max(0) as u64)))
-            .ok_or_else(|| Error::Decode("date overflow".into()))
+        // 'infinity' and '-infinity' (i32::MAX and i32::MIN) fall outside chrono's range.
+        chrono::TimeDelta::try_days(i64::from(pg_days))
+            .and_then(|days| PG_EPOCH.checked_add_signed(days))
+            .ok_or_else(|| Error::Decode(format!("date out of range: {} days", pg_days)))
     }
 }
 
@@ -284,6 +284,24 @@ mod tests {
         assert_eq!(date.year(), 2024);
         assert_eq!(date.month(), 1);
         assert_eq!(date.day(), 15);
+    }
+
+    #[test]
+    fn date_binary_before_epoch() {
+        assert_eq!(
+            NaiveDate::from_binary(oid::DATE, &(-1_i32).to_be_bytes()).unwrap(),
+            NaiveDate::from_ymd_opt(1999, 12, 31).unwrap()
+        );
+        assert_eq!(
+            NaiveDate::from_binary(oid::DATE, &(-36_524_i32).to_be_bytes()).unwrap(),
+            NaiveDate::from_ymd_opt(1900, 1, 1).unwrap()
+        );
+    }
+
+    #[test]
+    fn date_binary_infinity() {
+        NaiveDate::from_binary(oid::DATE, &i32::MAX.to_be_bytes()).unwrap_err();
+        NaiveDate::from_binary(oid::DATE, &i32::MIN.to_be_bytes()).unwrap_err();
     }
 
     #[test]
