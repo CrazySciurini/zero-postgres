@@ -1,11 +1,14 @@
 # Introduction
 
-zero-postgres is a high-performance PostgreSQL client library for Rust. It provides both synchronous and asynchronous APIs with a focus on speed and minimal allocations.
+zero-postgres is a high-performance PostgreSQL client library for Rust.
+It provides both synchronous and asynchronous APIs with a focus on speed and minimal allocations.
 
 ```toml
 [dependencies]
 zero-postgres = "*"
 ```
+
+Supports PostgreSQL 10.2 - 18.x.
 
 ## Quick Start
 
