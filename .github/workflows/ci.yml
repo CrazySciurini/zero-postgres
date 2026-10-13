@@ -54,7 +54,7 @@ jobs:
       - name: Generate coverage report
         run: cargo llvm-cov --all-features --lcov --output-path lcov.info
         env:
-          DATABASE_URL: postgres://test:1234@localhost/test?sslmode=disable
+          DATABASE_URL: postgres://test:1234@localhost/test?tls_mode=disable
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:

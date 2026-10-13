@@ -7,15 +7,15 @@ use url::Url;
 use crate::buffer_pool::{BufferPool, GLOBAL_BUFFER_POOL};
 use crate::error::Error;
 
-/// SSL connection mode.
+/// TLS connection mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SslMode {
-    /// Don't use SSL
+pub enum TlsMode {
+    /// Don't use TLS (Insecure)
     Disable,
-    /// Try SSL, fall back to unencrypted if not supported
+    /// Try TLS, fall back to unencrypted if the server does not support TLS (Insecure)
     #[default]
     Prefer,
-    /// Require SSL connection
+    /// Require TLS (Recommended)
     Require,
 }
 
@@ -57,10 +57,10 @@ pub struct Opts {
     /// Default: `None`
     pub application_name: Option<String>,
 
-    /// SSL connection mode.
+    /// TLS connection mode.
     ///
-    /// Default: `SslMode::Prefer`
-    pub ssl_mode: SslMode,
+    /// Default: `TlsMode::Prefer`
+    pub tls_mode: TlsMode,
 
     /// Additional connection parameters.
     ///
@@ -98,7 +98,7 @@ impl Default for Opts {
             database: None,
             password: None,
             application_name: None,
-            ssl_mode: SslMode::Prefer,
+            tls_mode: TlsMode::Prefer,
             params: Vec::new(),
             upgrade_to_unix_socket: true,
             pool_max_idle_conn: 100,
@@ -116,7 +116,7 @@ impl TryFrom<&Url> for Opts {
     /// Format: `(pg|postgres|postgresql)://[user[:password]@]host[:port][/database][?param1=value1&param2=value2&..]`
     ///
     /// Supported query parameters:
-    /// - `sslmode` or `ssl_mode`: disable, prefer, require
+    /// - `tls_mode`: disable, prefer, require
     /// - `application_name`: application name
     /// - `upgrade_to_unix_socket`: true/True/1/yes/on or false/False/0/no/off
     /// - `pool_max_idle_conn`: maximum idle connections (positive integer)
@@ -146,14 +146,14 @@ impl TryFrom<&Url> for Opts {
 
         for (key, value) in url.query_pairs() {
             match key.as_ref() {
-                "sslmode" | "ssl_mode" => {
-                    opts.ssl_mode = match value.as_ref() {
-                        "disable" => SslMode::Disable,
-                        "prefer" => SslMode::Prefer,
-                        "require" => SslMode::Require,
+                "tls_mode" => {
+                    opts.tls_mode = match value.as_ref() {
+                        "disable" => TlsMode::Disable,
+                        "prefer" => TlsMode::Prefer,
+                        "require" => TlsMode::Require,
                         _ => {
                             return Err(Error::InvalidUsage(format!(
-                                "Invalid sslmode: expected one of ['disable', 'prefer', 'require'], got {}",
+                                "Invalid tls_mode: expected one of ['disable', 'prefer', 'require'], got {}",
                                 value
                             )));
                         }

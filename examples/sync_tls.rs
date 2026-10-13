@@ -7,7 +7,7 @@
 
 use std::env;
 use zero_postgres::sync::Conn;
-use zero_postgres::{Opts, SslMode};
+use zero_postgres::{Opts, TlsMode};
 
 #[expect(clippy::print_stdout)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse URL and force TLS
     let mut opts: Opts = url.as_str().try_into()?;
-    opts.ssl_mode = SslMode::Require;
+    opts.tls_mode = TlsMode::Require;
 
     println!("Connecting with TLS...");
     let mut conn = Conn::new(opts)?;

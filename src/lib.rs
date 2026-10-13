@@ -73,7 +73,7 @@ pub use buffer_set::BufferSet;
 pub use conversion::PG_EPOCH_JULIAN_DAY;
 pub use error::{Error, Result, ServerError};
 pub use handler::AsyncMessageHandler;
-pub use opts::{Opts, SslMode};
+pub use opts::{Opts, TlsMode};
 pub use pipeline::Ticket;
 pub use state::action::AsyncMessage;
 pub use state::extended::PreparedStatement;

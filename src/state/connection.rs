@@ -1,7 +1,7 @@
 //! Connection startup and authentication state machine.
 
 use crate::error::{Error, Result};
-use crate::opts::{Opts, SslMode};
+use crate::opts::{Opts, TlsMode};
 use crate::protocol::backend::{
     AuthenticationMessage, BackendKeyData, ErrorResponse, NegotiateProtocolVersion,
     ParameterStatus, RawMessage, ReadyForQuery, msg_type,
@@ -79,15 +79,15 @@ impl ConnectionStateMachine {
 
         let client_supports_tls = cfg!(any(feature = "sync-tls", feature = "tokio-tls"));
 
-        let send_ssl_request = match self.options.ssl_mode {
-            SslMode::Disable => false,
-            SslMode::Prefer => client_supports_tls,
-            SslMode::Require if !client_supports_tls => {
+        let send_ssl_request = match self.options.tls_mode {
+            TlsMode::Disable => false,
+            TlsMode::Prefer => client_supports_tls,
+            TlsMode::Require if !client_supports_tls => {
                 return Err(Error::Unsupported(
                     "SSL required but TLS feature not enabled".into(),
                 ));
             }
-            SslMode::Require => true,
+            TlsMode::Require => true,
         };
 
         if send_ssl_request {
@@ -108,7 +108,7 @@ impl ConnectionStateMachine {
                 Ok(Action::TlsHandshake)
             }
             b'N' => {
-                if self.options.ssl_mode == SslMode::Require {
+                if self.options.tls_mode == TlsMode::Require {
                     return Err(Error::Auth(
                         "SSL required but not supported by server".into(),
                     ));

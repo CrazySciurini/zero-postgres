@@ -38,11 +38,11 @@ fn get_conn() -> Result<Conn, Error> {
     let mut db_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
     // Disable TLS if not specified
-    if !db_url.contains("sslmode=") {
+    if !db_url.contains("tls_mode=") {
         if db_url.contains('?') {
-            db_url.push_str("&sslmode=disable");
+            db_url.push_str("&tls_mode=disable");
         } else {
-            db_url.push_str("?sslmode=disable");
+            db_url.push_str("?tls_mode=disable");
         }
     }
     Conn::new(db_url.as_str())

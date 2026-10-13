@@ -18,11 +18,11 @@ static TABLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 fn get_conn() -> Result<Connection, Box<dyn std::error::Error>> {
     let mut db_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
-    if !db_url.contains("sslmode=") {
+    if !db_url.contains("tls_mode=") {
         if db_url.contains('?') {
-            db_url.push_str("&sslmode=disable");
+            db_url.push_str("&tls_mode=disable");
         } else {
-            db_url.push_str("?sslmode=disable");
+            db_url.push_str("?tls_mode=disable");
         }
     }
     Ok(Connection::establish(&db_url)?)
