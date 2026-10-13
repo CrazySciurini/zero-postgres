@@ -71,7 +71,8 @@ impl Conn {
     /// Connect using an existing stream.
     pub async fn new_with_stream(mut stream: Stream, options: Opts) -> Result<Self> {
         let mut buffer_set = options.buffer_pool.get_buffer_set();
-        let mut state_machine = ConnectionStateMachine::new(options.clone());
+        let mut state_machine =
+            ConnectionStateMachine::new(options.clone(), cfg!(feature = "compio-tls"));
 
         // Drive the connection state machine
         loop {

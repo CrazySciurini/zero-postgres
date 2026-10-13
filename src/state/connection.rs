@@ -43,11 +43,15 @@ pub struct ConnectionStateMachine {
     scram_client: Option<ScramClient>,
     /// SSL response byte, set by driver after ReadByte
     ssl_response: u8,
+    /// Whether the driver can perform a TLS handshake
+    tls_supported: bool,
 }
 
 impl ConnectionStateMachine {
     /// Create a new connection state machine.
-    pub fn new(options: Opts) -> Self {
+    ///
+    /// `tls_supported` tells whether the driver can handle [`Action::TlsHandshake`].
+    pub fn new(options: Opts, tls_supported: bool) -> Self {
         Self {
             state: State::Initial,
             options,
@@ -56,6 +60,7 @@ impl ConnectionStateMachine {
             transaction_status: TransactionStatus::Idle,
             scram_client: None,
             ssl_response: 0,
+            tls_supported,
         }
     }
 
@@ -77,14 +82,12 @@ impl ConnectionStateMachine {
     fn handle_initial(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
         buffer_set.write_buffer.clear();
 
-        let client_supports_tls = cfg!(any(feature = "sync-tls", feature = "tokio-tls"));
-
         let send_ssl_request = match self.options.tls_mode {
             TlsMode::Disable => false,
-            TlsMode::Prefer => client_supports_tls,
-            TlsMode::Require if !client_supports_tls => {
+            TlsMode::Prefer => self.tls_supported,
+            TlsMode::Require if !self.tls_supported => {
                 return Err(Error::Unsupported(
-                    "SSL required but TLS feature not enabled".into(),
+                    "TLS requested but TLS feature not enabled".into(),
                 ));
             }
             TlsMode::Require => true,
@@ -110,7 +113,7 @@ impl ConnectionStateMachine {
             b'N' => {
                 if self.options.tls_mode == TlsMode::Require {
                     return Err(Error::Auth(
-                        "SSL required but not supported by server".into(),
+                        "TLS requested but not supported by server".into(),
                     ));
                 }
                 // SSL not supported, continue with plain connection
@@ -451,7 +454,7 @@ mod tests {
     use super::*;
 
     fn step_negotiate(newest_version: i32, options: &[&str]) -> Result<Action> {
-        let mut machine = ConnectionStateMachine::new(Opts::default());
+        let mut machine = ConnectionStateMachine::new(Opts::default(), false);
         machine.state = State::WaitingAuth;
         let mut buffer_set = BufferSet::new();
         buffer_set.type_byte = msg_type::NEGOTIATE_PROTOCOL_VERSION;
@@ -491,5 +494,43 @@ mod tests {
     #[test]
     fn negotiate_rejects_unrecognized_options() {
         step_negotiate(PROTOCOL_VERSION_3_0, &["_pq_.unknown"]).unwrap_err();
+    }
+
+    fn step_initial(tls_mode: TlsMode, tls_supported: bool) -> Result<Action> {
+        let options = Opts {
+            tls_mode,
+            ..Opts::default()
+        };
+        let mut machine = ConnectionStateMachine::new(options, tls_supported);
+        machine.step(&mut BufferSet::new())
+    }
+
+    #[test]
+    fn prefer_sends_ssl_request_when_tls_supported() {
+        assert!(matches!(
+            step_initial(TlsMode::Prefer, true),
+            Ok(Action::WriteAndReadByte)
+        ));
+    }
+
+    #[test]
+    fn prefer_skips_ssl_request_when_tls_unsupported() {
+        assert!(matches!(
+            step_initial(TlsMode::Prefer, false),
+            Ok(Action::Write)
+        ));
+    }
+
+    #[test]
+    fn require_sends_ssl_request_when_tls_supported() {
+        assert!(matches!(
+            step_initial(TlsMode::Require, true),
+            Ok(Action::WriteAndReadByte)
+        ));
+    }
+
+    #[test]
+    fn require_fails_when_tls_unsupported() {
+        step_initial(TlsMode::Require, false).unwrap_err();
     }
 }
