@@ -8,6 +8,9 @@ repository = "https://github.com/elbaro/zero-postgres"
 keywords = ["postgres", "postgresql", "database", "sql", "async"]
 categories = ["database"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [workspace]
 members = ["zero-postgres-derive"]
 
