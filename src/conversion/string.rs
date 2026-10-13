@@ -66,9 +66,17 @@ impl ToWireValue for str {
 
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
-            oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME | oid::JSON | oid::JSONB => {
+            oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME | oid::JSON => {
                 let bytes = self.as_bytes();
                 buf.extend_from_slice(&(bytes.len() as i32).to_be_bytes());
+                buf.extend_from_slice(bytes);
+                Ok(())
+            }
+            oid::JSONB => {
+                // Binary JSONB is a version byte (currently 1) followed by the JSON text.
+                let bytes = self.as_bytes();
+                buf.extend_from_slice(&((bytes.len() + 1) as i32).to_be_bytes());
+                buf.push(1);
                 buf.extend_from_slice(bytes);
                 Ok(())
             }
@@ -100,5 +108,19 @@ mod tests {
     fn type_mismatch() {
         // Trying to decode INT4 as String should fail
         String::from_binary(oid::INT4, &[0, 0, 0, 1]).unwrap_err();
+    }
+
+    #[test]
+    fn encode_jsonb_prefixes_version() {
+        let mut buf = Vec::new();
+        "{}".encode(oid::JSONB, &mut buf).unwrap();
+        assert_eq!(buf, [0, 0, 0, 3, 1, b'{', b'}']);
+    }
+
+    #[test]
+    fn encode_json_has_no_version() {
+        let mut buf = Vec::new();
+        "{}".encode(oid::JSON, &mut buf).unwrap();
+        assert_eq!(buf, [0, 0, 0, 2, b'{', b'}']);
     }
 }
