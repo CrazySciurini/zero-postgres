@@ -16,6 +16,8 @@ mod error;
 mod opts;
 mod pipeline;
 mod statement;
+#[cfg(any(feature = "sync-tls", feature = "tokio-tls", feature = "compio-tls"))]
+mod tls;
 
 // pub
 pub mod conversion;

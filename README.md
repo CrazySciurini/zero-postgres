@@ -18,7 +18,7 @@ Python binding: [pyro-postgres](https://github.com/elbaro/pyro-postgres/).
 - `compio-tls` - TLS support for compio (experimental)
 - `diesel` - Diesel support (experimental)
 
-TLS flags currently use `native-tls`.
+TLS flags use `rustls` with the platform's native root certificates.
 
 [External type supports](https://elbaro.github.io/zero-postgres/datatype.html#feature-gated-types):
 - `with-chrono` - Support [chrono](https://crates.io/crates/chrono) date/time types

@@ -4,12 +4,12 @@ use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 
 #[cfg(feature = "sync-tls")]
-use native_tls::TlsStream;
+use rustls::{ClientConnection, StreamOwned};
 
 pub enum Stream {
     Tcp(BufReader<TcpStream>),
     #[cfg(feature = "sync-tls")]
-    Tls(BufReader<TlsStream<TcpStream>>),
+    Tls(BufReader<Box<StreamOwned<ClientConnection, TcpStream>>>),
     #[cfg(unix)]
     Unix(BufReader<UnixStream>),
 }
@@ -31,18 +31,19 @@ impl Stream {
     pub fn upgrade_to_tls(self, host: &str) -> Result<Self, crate::error::Error> {
         match self {
             Stream::Tcp(buf_reader) => {
-                let tcp_stream = buf_reader.into_inner();
-                let connector = native_tls::TlsConnector::new()?;
-                let tls_stream = connector.connect(host, tcp_stream).map_err(|e| match e {
-                    native_tls::HandshakeError::Failure(e) => crate::error::Error::Tls(e),
-                    native_tls::HandshakeError::WouldBlock(_) => {
-                        crate::error::Error::Io(std::io::Error::new(
-                            std::io::ErrorKind::WouldBlock,
-                            "TLS handshake would block",
-                        ))
-                    }
-                })?;
-                Ok(Stream::Tls(BufReader::new(tls_stream)))
+                let mut tcp_stream = buf_reader.into_inner();
+                let mut conn = ClientConnection::new(
+                    crate::tls::client_config()?,
+                    crate::tls::server_name(host)?,
+                )?;
+                // Finish the handshake now so that TLS errors surface here instead of
+                // on the first query.
+                while conn.is_handshaking() {
+                    conn.complete_io(&mut tcp_stream)?;
+                }
+                Ok(Stream::Tls(BufReader::new(Box::new(StreamOwned::new(
+                    conn, tcp_stream,
+                )))))
             }
             Stream::Tls(_) => Err(crate::error::Error::InvalidUsage(
                 "Stream is already TLS".into(),

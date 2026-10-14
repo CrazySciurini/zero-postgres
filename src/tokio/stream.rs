@@ -6,12 +6,12 @@ use tokio::net::TcpStream;
 use tokio::net::UnixStream;
 
 #[cfg(feature = "tokio-tls")]
-use tokio_native_tls::TlsStream;
+use tokio_rustls::client::TlsStream;
 
 pub enum Stream {
     Tcp(BufReader<TcpStream>),
     #[cfg(feature = "tokio-tls")]
-    Tls(BufReader<TlsStream<TcpStream>>),
+    Tls(BufReader<Box<TlsStream<TcpStream>>>),
     #[cfg(unix)]
     Unix(BufReader<UnixStream>),
 }
@@ -34,13 +34,11 @@ impl Stream {
         match self {
             Stream::Tcp(buf_reader) => {
                 let tcp_stream = buf_reader.into_inner();
-                let connector =
-                    tokio_native_tls::TlsConnector::from(native_tls::TlsConnector::new()?);
+                let connector = tokio_rustls::TlsConnector::from(crate::tls::client_config()?);
                 let tls_stream = connector
-                    .connect(host, tcp_stream)
-                    .await
-                    .map_err(crate::error::Error::Tls)?;
-                Ok(Stream::Tls(BufReader::new(tls_stream)))
+                    .connect(crate::tls::server_name(host)?, tcp_stream)
+                    .await?;
+                Ok(Stream::Tls(BufReader::new(Box::new(tls_stream))))
             }
             Stream::Tls(_) => Err(crate::error::Error::InvalidUsage(
                 "Stream is already TLS".into(),
@@ -120,10 +118,9 @@ impl Stream {
                 .unwrap_or(false),
             #[cfg(feature = "tokio-tls")]
             Self::Tls(r) => r
-                .get_ref() // &TlsStream<TcpStream> (tokio_native_tls)
-                .get_ref() // &native_tls::TlsStream<AllowStd<TcpStream>>
-                .get_ref() // &AllowStd<TcpStream>
-                .get_ref() // &TcpStream
+                .get_ref() // &Box<TlsStream<TcpStream>> (tokio_rustls)
+                .get_ref() // (&TcpStream, &ClientConnection)
+                .0
                 .peer_addr()
                 .map(|addr| addr.ip().is_loopback())
                 .unwrap_or(false),

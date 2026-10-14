@@ -14,7 +14,7 @@ const READ_BUF_CAPACITY: usize = 8192;
 enum StreamInner {
     Tcp(TcpStream),
     #[cfg(feature = "compio-tls")]
-    Tls(TlsStream<TcpStream>),
+    Tls(Box<TlsStream<TcpStream>>),
     #[cfg(unix)]
     Unix(UnixStream),
 }
@@ -57,14 +57,12 @@ impl Stream {
     pub async fn upgrade_to_tls(self, host: &str) -> Result<Self, crate::error::Error> {
         match self.inner {
             StreamInner::Tcp(tcp_stream) => {
-                let native_connector =
-                    compio::native_tls::TlsConnector::new().map_err(crate::error::Error::Tls)?;
-                let connector = compio::tls::TlsConnector::from(native_connector);
+                let connector = compio::tls::TlsConnector::from(crate::tls::client_config()?);
                 let tls_stream = connector.connect(host, tcp_stream).await?;
                 // Start with a fresh read buffer after TLS handshake;
                 // any pre-TLS buffered bytes are invalid in the TLS context.
                 Ok(Self {
-                    inner: StreamInner::Tls(tls_stream),
+                    inner: StreamInner::Tls(Box::new(tls_stream)),
                     read_buf: Vec::with_capacity(READ_BUF_CAPACITY),
                     read_pos: 0,
                 })
