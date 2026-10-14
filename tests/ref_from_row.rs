@@ -1,6 +1,6 @@
 //! Tests for RefFromRow zero-copy row decoding.
 
-#![allow(clippy::shadow_unrelated)]
+#![allow(clippy::panic, clippy::panic_in_result_fn, clippy::shadow_unrelated)]
 
 use zero_postgres::conversion::ref_row::{
     FixedWireSize, I16BE, I32BE, I64BE, LengthPrefixed, U16BE, U32BE, U64BE,
@@ -200,4 +200,179 @@ fn simulated_row() {
     assert_eq!(row.id.get().get(), 1001);
     assert_eq!(row.age.get().get(), 25);
     assert_eq!(row.score.get().get(), 9500);
+}
+
+// ─── #[derive(RefFromRow)] ───────────────────────────────────────────────────
+
+use zero_postgres::conversion::ref_row::RefFromRow;
+use zero_postgres::protocol::backend::query::DataRow;
+use zero_postgres_derive::RefFromRow;
+
+#[derive(FromBytes, KnownLayout, Immutable, RefFromRow)]
+#[repr(C, packed)]
+struct Stats {
+    id: LengthPrefixed<I64BE>,
+    count: LengthPrefixed<I32BE>,
+    flag: LengthPrefixed<u8>,
+}
+
+/// Builds a DataRow payload: column count, then `[len][value]` per column.
+fn data_row(columns: &[Option<&[u8]>]) -> Vec<u8> {
+    let mut payload = (columns.len() as i16).to_be_bytes().to_vec();
+    for column in columns {
+        match column {
+            Some(value) => {
+                payload.extend_from_slice(&(value.len() as i32).to_be_bytes());
+                payload.extend_from_slice(value);
+            }
+            None => payload.extend_from_slice(&(-1_i32).to_be_bytes()),
+        }
+    }
+    payload
+}
+
+fn decode(payload: &[u8]) -> zero_postgres::Result<&Stats> {
+    Stats::ref_from_row_binary(&[], DataRow::parse(payload)?)
+}
+
+fn decode_err(payload: &[u8]) -> String {
+    match decode(payload) {
+        Ok(_) => panic!("expected an error"),
+        Err(e) => e.to_string(),
+    }
+}
+
+#[test]
+fn derive_decodes_row() {
+    let payload = data_row(&[
+        Some(&7_i64.to_be_bytes()),
+        Some(&(-3_i32).to_be_bytes()),
+        Some(&[1]),
+    ]);
+    let row = decode(&payload).unwrap();
+    assert_eq!(row.id.get().get(), 7);
+    assert_eq!(row.count.get().get(), -3);
+    assert_eq!(row.flag.get(), 1);
+}
+
+#[test]
+fn derive_rejects_null_column() {
+    let payload = data_row(&[Some(&7_i64.to_be_bytes()), None, Some(&[1])]);
+    assert!(decode_err(&payload).contains("column 1 is NULL"));
+}
+
+#[test]
+fn derive_rejects_wrong_column_length() {
+    // An int2 column where the struct expects 4 bytes.
+    let payload = data_row(&[
+        Some(&7_i64.to_be_bytes()),
+        Some(&3_i16.to_be_bytes()),
+        Some(&[1]),
+    ]);
+    assert!(decode_err(&payload).contains("column 1 has 2 bytes, expected 4"));
+}
+
+#[test]
+fn derive_rejects_wrong_column_count() {
+    let payload = data_row(&[Some(&7_i64.to_be_bytes()), Some(&3_i32.to_be_bytes())]);
+    assert!(decode_err(&payload).contains("expects 3 columns, got 2"));
+
+    let payload = data_row(&[
+        Some(&7_i64.to_be_bytes()),
+        Some(&3_i32.to_be_bytes()),
+        Some(&[1]),
+        Some(&[2]),
+    ]);
+    assert!(decode_err(&payload).contains("expects 3 columns, got 4"));
+}
+
+#[test]
+fn derive_rejects_trailing_bytes() {
+    let mut payload = data_row(&[
+        Some(&7_i64.to_be_bytes()),
+        Some(&3_i32.to_be_bytes()),
+        Some(&[1]),
+    ]);
+    payload.push(0xFF);
+    assert!(decode_err(&payload).contains("1 unexpected bytes after the last column"));
+}
+
+#[test]
+fn derive_rejects_truncated_row() {
+    let mut payload = data_row(&[
+        Some(&7_i64.to_be_bytes()),
+        Some(&3_i32.to_be_bytes()),
+        Some(&[1]),
+    ]);
+    payload.truncate(payload.len() - 1);
+    assert!(decode_err(&payload).contains("column 2 is truncated"));
+}
+
+// ─── #[derive(RefFromRow)] Against A Server ──────────────────────────────────
+
+fn get_conn() -> zero_postgres::Result<zero_postgres::sync::Conn> {
+    let mut db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
+    if !db_url.contains("tls_mode=") {
+        db_url.push_str(if db_url.contains('?') { "&" } else { "?" });
+        db_url.push_str("tls_mode=disable");
+    }
+    zero_postgres::sync::Conn::new(db_url.as_str())
+}
+
+#[test]
+fn exec_foreach_ref_decodes_rows() -> zero_postgres::Result<()> {
+    let mut conn = get_conn()?;
+    let mut rows = Vec::new();
+    conn.exec_foreach_ref::<Stats, _, _, _>(
+        "SELECT g::int8, (g * -10)::int4, (g + 64)::\"char\" FROM generate_series(1, 3) g",
+        (),
+        |row| {
+            rows.push((row.id.get().get(), row.count.get().get(), row.flag.get()));
+            Ok(())
+        },
+    )?;
+    assert_eq!(rows, vec![(1, -10, b'A'), (2, -20, b'B'), (3, -30, b'C')]);
+    Ok(())
+}
+
+#[test]
+fn exec_foreach_ref_rejects_null() -> zero_postgres::Result<()> {
+    let mut conn = get_conn()?;
+    let result = conn.exec_foreach_ref::<Stats, _, _, _>(
+        "SELECT 1::int8, NULL::int4, 'A'::\"char\"",
+        (),
+        |_| Ok(()),
+    );
+    let err = result
+        .expect_err("NULL column must be rejected")
+        .to_string();
+    assert!(err.contains("column 1 is NULL"), "{err}");
+    Ok(())
+}
+
+#[test]
+fn exec_foreach_ref_rejects_wrong_type_size() -> zero_postgres::Result<()> {
+    let mut conn = get_conn()?;
+    let result = conn.exec_foreach_ref::<Stats, _, _, _>(
+        "SELECT 1::int8, 2::int2, 'A'::\"char\"",
+        (),
+        |_| Ok(()),
+    );
+    let err = result
+        .expect_err("int2 must not decode as I32BE")
+        .to_string();
+    assert!(err.contains("column 1 has 2 bytes, expected 4"), "{err}");
+    Ok(())
+}
+
+#[test]
+fn exec_foreach_ref_rejects_wrong_column_count() -> zero_postgres::Result<()> {
+    let mut conn = get_conn()?;
+    let result = conn.exec_foreach_ref::<Stats, _, _, _>("SELECT 1::int8, 2::int4", (), |_| Ok(()));
+    let err = result
+        .expect_err("missing column must be rejected")
+        .to_string();
+    assert!(err.contains("expects 3 columns, got 2"), "{err}");
+    Ok(())
 }

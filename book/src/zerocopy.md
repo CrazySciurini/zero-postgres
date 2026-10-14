@@ -18,17 +18,20 @@ PostgreSQL's binary protocol includes a 4-byte length prefix before each column 
 
 To use zero-copy decoding, your struct must:
 
-1. Derive `RefFromRow`
+1. Derive `RefFromRow` together with zerocopy's `FromBytes`, `KnownLayout` and `Immutable`
 2. Have `#[repr(C, packed)]` attribute
 3. Use `LengthPrefixed<T>` with big-endian types (PostgreSQL uses network byte order)
+
+Add `zerocopy` to your dependencies for its derives.
 
 ## Example
 
 ```rust
 use zero_postgres::conversion::ref_row::{RefFromRow, LengthPrefixed, I64BE, I32BE};
 use zero_postgres_derive::RefFromRow;
+use zerocopy::{FromBytes, Immutable, KnownLayout};
 
-#[derive(RefFromRow)]
+#[derive(FromBytes, KnownLayout, Immutable, RefFromRow)]
 #[repr(C, packed)]
 struct UserStats {
     user_id: LengthPrefixed<I64BE>,     // 4 + 8 = 12 bytes
@@ -96,10 +99,10 @@ let user_id: i64 = row.user_id.get().get();
 
 ## How It Works
 
-1. The derive macro generates `zerocopy` trait implementations (`FromBytes`, `KnownLayout`, `Immutable`)
-2. At compile time, it verifies all fields implement `FixedWireSize`
-3. At runtime, the row buffer is cast directly to `&YourStruct` using zerocopy
-4. No parsing, no allocation - just a pointer cast with size validation
+1. zerocopy's derives prove that any byte pattern is a valid value of the struct
+2. At compile time, `RefFromRow` checks that every field is `LengthPrefixed<T>` with `T: FixedWireSize`, and that the struct size equals the wire size
+3. At runtime, it checks the column count and each column's length prefix, so a NULL or a column of the wrong size is an error
+4. The row buffer is then cast directly to `&YourStruct`, with no parsing and no allocation
 
 ## Wire Format Diagram
 

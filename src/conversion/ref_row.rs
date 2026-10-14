@@ -12,20 +12,15 @@
 //!
 //! # Requirements
 //!
-//! - All struct fields must implement `FixedWireSize`
-//! - All columns must be `NOT NULL` (no `Option<T>` support)
+//! - The struct derives `zerocopy::{FromBytes, KnownLayout, Immutable}` alongside `RefFromRow`
 //! - Struct must use `#[repr(C, packed)]` for predictable layout
-//! - Fields must use `LengthPrefixed<T>` with big-endian types
-//!
-//! # Compile-time Safety
-//!
-//! The derive macro enforces that all fields implement `FixedWireSize` at compile time.
-//! Variable-length types like `String` or `Vec<T>` will cause a compilation error.
+//! - Every field is a `LengthPrefixed<T>` with a big-endian `T: FixedWireSize`
+//! - All columns must be `NOT NULL` (no `Option<T>` support)
 
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
-use crate::Result;
 use crate::protocol::backend::query::{DataRow, FieldDescription};
+use crate::{Error, Result};
 
 // Re-export big-endian types for convenience
 pub use zerocopy::big_endian::{
@@ -145,53 +140,72 @@ impl<T: Copy> LengthPrefixed<T> {
 /// 1. All fields are `LengthPrefixed<T>` where `T: FixedWireSize`
 /// 2. No NULL values (columns must be `NOT NULL`)
 /// 3. Struct has `#[repr(C, packed)]` layout
+/// 4. Struct derives `zerocopy::{FromBytes, KnownLayout, Immutable}`
 ///
-/// The derive macro generates zerocopy trait implementations automatically.
+/// # Example
+///
+/// ```
+/// use zero_postgres::conversion::ref_row::{I32BE, I64BE, LengthPrefixed};
+/// use zero_postgres_derive::RefFromRow;
+/// use zerocopy::{FromBytes, Immutable, KnownLayout};
+///
+/// #[derive(FromBytes, KnownLayout, Immutable, RefFromRow)]
+/// #[repr(C, packed)]
+/// struct UserStats {
+///     user_id: LengthPrefixed<I64BE>,
+///     login_count: LengthPrefixed<I32BE>,
+/// }
+/// ```
 ///
 /// # Compile-fail tests
 ///
-/// Missing `#[repr(C, packed)]`:
-/// ```compile_fail
-/// use zero_postgres::conversion::ref_row::{LengthPrefixed, I32BE};
+/// Missing zerocopy derives:
+/// ```compile_fail,E0277
+/// use zero_postgres::conversion::ref_row::{I32BE, LengthPrefixed};
 /// use zero_postgres_derive::RefFromRow;
 ///
 /// #[derive(RefFromRow)]
+/// #[repr(C, packed)]
 /// struct Invalid {
 ///     value: LengthPrefixed<I32BE>,
 /// }
 /// ```
 ///
-/// Native integer types (must use big-endian wrappers):
+/// Missing `#[repr(C, packed)]`:
 /// ```compile_fail
+/// use zero_postgres::conversion::ref_row::{I32BE, LengthPrefixed};
+/// use zero_postgres_derive::RefFromRow;
+/// use zerocopy::{FromBytes, Immutable, KnownLayout};
+///
+/// #[derive(FromBytes, KnownLayout, Immutable, RefFromRow)]
+/// struct Invalid {
+///     value: LengthPrefixed<I32BE>,
+/// }
+/// ```
+///
+/// Field without a length prefix:
+/// ```compile_fail,E0308
+/// use zero_postgres::conversion::ref_row::I32BE;
+/// use zero_postgres_derive::RefFromRow;
+/// use zerocopy::{FromBytes, Immutable, KnownLayout};
+///
+/// #[derive(FromBytes, KnownLayout, Immutable, RefFromRow)]
+/// #[repr(C, packed)]
+/// struct Invalid {
+///     value: I32BE,
+/// }
+/// ```
+///
+/// Native integer types (must use big-endian wrappers):
+/// ```compile_fail,E0277
 /// use zero_postgres::conversion::ref_row::LengthPrefixed;
 /// use zero_postgres_derive::RefFromRow;
+/// use zerocopy::{FromBytes, Immutable, KnownLayout};
 ///
-/// #[derive(RefFromRow)]
+/// #[derive(FromBytes, KnownLayout, Immutable, RefFromRow)]
 /// #[repr(C, packed)]
 /// struct Invalid {
 ///     value: LengthPrefixed<i64>,
-/// }
-/// ```
-///
-/// `String` fields are not allowed:
-/// ```compile_fail
-/// use zero_postgres_derive::RefFromRow;
-///
-/// #[derive(RefFromRow)]
-/// #[repr(C, packed)]
-/// struct Invalid {
-///     name: String,
-/// }
-/// ```
-///
-/// `Vec` fields are not allowed:
-/// ```compile_fail
-/// use zero_postgres_derive::RefFromRow;
-///
-/// #[derive(RefFromRow)]
-/// #[repr(C, packed)]
-/// struct Invalid {
-///     data: Vec<u8>,
 /// }
 /// ```
 pub trait RefFromRow<'a>: Sized {
@@ -200,9 +214,51 @@ pub trait RefFromRow<'a>: Sized {
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The row data size doesn't match the struct size
+    /// - The column count doesn't match the field count
     /// - Any column is NULL (indicated by length = -1)
+    /// - Any column's length differs from its field's value size
     fn ref_from_row_binary(cols: &[FieldDescription], row: DataRow<'a>) -> Result<&'a Self>;
+}
+
+/// Checks every column of `row` against `wire_sizes`, then casts the row to `T`.
+#[doc(hidden)]
+pub fn ref_from_data_row<'a, T>(row: DataRow<'a>, wire_sizes: &[usize]) -> Result<&'a T>
+where
+    T: FromBytes + KnownLayout + Immutable,
+{
+    if row.len() != wire_sizes.len() {
+        return Err(Error::Decode(format!(
+            "RefFromRow expects {} columns, got {}",
+            wire_sizes.len(),
+            row.len()
+        )));
+    }
+
+    let data = row.raw_data();
+    let mut rest = data;
+    for (index, &wire_size) in wire_sizes.iter().enumerate() {
+        let truncated = || Error::Decode(format!("RefFromRow: column {index} is truncated"));
+        let (len, value_and_rest) = rest.split_first_chunk::<4>().ok_or_else(truncated)?;
+        let len = i32::from_be_bytes(*len);
+        if len == -1 {
+            return Err(Error::Decode(format!("RefFromRow: column {index} is NULL")));
+        }
+        let value_size = wire_size.saturating_sub(4);
+        if usize::try_from(len).ok() != Some(value_size) {
+            return Err(Error::Decode(format!(
+                "RefFromRow: column {index} has {len} bytes, expected {value_size}"
+            )));
+        }
+        rest = value_and_rest.get(value_size..).ok_or_else(truncated)?;
+    }
+    if !rest.is_empty() {
+        return Err(Error::Decode(format!(
+            "RefFromRow: {} unexpected bytes after the last column",
+            rest.len()
+        )));
+    }
+
+    T::ref_from_bytes(data).map_err(|e| Error::LibraryBug(format!("RefFromRow cast: {e}")))
 }
 
 #[cfg(test)]

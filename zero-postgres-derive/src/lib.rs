@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::{Data, DeriveInput, Fields, Meta, parse_macro_input, spanned::Spanned};
 
 /// Derive macro for `FromRow` trait.
@@ -244,10 +244,11 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 /// Derive macro for `RefFromRow` trait - zero-copy row decoding.
 ///
 /// This macro generates a zero-copy implementation that returns a reference
-/// directly into the row buffer. It also derives zerocopy traits automatically.
+/// directly into the row buffer.
 ///
 /// # Requirements
 ///
+/// - Struct must derive `zerocopy::{FromBytes, KnownLayout, Immutable}`
 /// - Struct must have `#[repr(C, packed)]` attribute
 /// - All fields must be `LengthPrefixed<T>` where `T` implements `FixedWireSize`
 /// - All columns must be `NOT NULL` (no `Option<T>` support)
@@ -262,8 +263,9 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 ///
 /// ```ignore
 /// use zero_postgres::conversion::ref_row::{RefFromRow, LengthPrefixed, I64BE, I32BE};
+/// use zerocopy::{FromBytes, Immutable, KnownLayout};
 ///
-/// #[derive(RefFromRow)]
+/// #[derive(FromBytes, KnownLayout, Immutable, RefFromRow)]
 /// #[repr(C, packed)]
 /// struct UserStats {
 ///     user_id: LengthPrefixed<I64BE>,     // 4 + 8 = 12 bytes
@@ -319,56 +321,39 @@ pub fn derive_ref_from_row(input: TokenStream) -> TokenStream {
 
     let field_types: Vec<_> = fields.iter().map(|f| &f.ty).collect();
 
-    // Generate compile-time assertions that all fields implement FixedWireSize
-    let wire_size_checks = field_types.iter().map(|ty| {
-        quote! {
-            const _: () = {
-                // This fails to compile if the type doesn't implement FixedWireSize
-                fn __assert_fixed_wire_size<T: ::zero_postgres::conversion::ref_row::FixedWireSize>() {}
-                fn __check() { __assert_fixed_wire_size::<#ty>(); }
-            };
+    // Each field must be `LengthPrefixed<_>`; a mismatch is a type error on that field.
+    let length_prefixed_checks = field_types.iter().map(|ty| {
+        quote_spanned! {ty.span()=>
+            let _: ::core::marker::PhantomData<
+                ::zero_postgres::conversion::ref_row::LengthPrefixed<_>,
+            > = ::core::marker::PhantomData::<#ty>;
         }
     });
 
-    // Calculate total wire size at compile time
-    let wire_size_sum = field_types.iter().map(|ty| {
-        quote! { <#ty as ::zero_postgres::conversion::ref_row::FixedWireSize>::WIRE_SIZE }
-    });
+    let wire_sizes: Vec<_> = field_types
+        .iter()
+        .map(|ty| {
+            quote_spanned! {ty.span()=>
+                <#ty as ::zero_postgres::conversion::ref_row::FixedWireSize>::WIRE_SIZE
+            }
+        })
+        .collect();
 
     let expanded = quote! {
-        // Compile-time checks that all fields implement FixedWireSize
-        #(#wire_size_checks)*
-
-        // Derive zerocopy traits for zero-copy access
-        unsafe impl ::zerocopy::KnownLayout for #name {}
-        unsafe impl ::zerocopy::Immutable for #name {}
-        unsafe impl ::zerocopy::FromBytes for #name {}
-
         impl<'a> ::zero_postgres::conversion::ref_row::RefFromRow<'a> for #name {
             fn ref_from_row_binary(
                 _cols: &[::zero_postgres::protocol::backend::query::FieldDescription],
                 row: ::zero_postgres::protocol::backend::query::DataRow<'a>,
             ) -> ::zero_postgres::Result<&'a Self> {
-                // Expected size (includes length prefixes via LengthPrefixed<T>)
-                const EXPECTED_SIZE: usize = 0 #(+ #wire_size_sum)*;
-
-                // Get raw data including length prefixes
-                let data = row.raw_data();
-
-                if data.len() < EXPECTED_SIZE {
-                    return Err(::zero_postgres::Error::Decode(
-                        format!(
-                            "Row data too small: expected {} bytes, got {}",
-                            EXPECTED_SIZE,
-                            data.len()
-                        )
-                    ));
+                #(#length_prefixed_checks)*
+                const WIRE_SIZES: &[usize] = &[#(#wire_sizes),*];
+                const {
+                    assert!(
+                        ::core::mem::size_of::<#name>() == 0 #(+ #wire_sizes)*,
+                        "RefFromRow struct layout does not match the wire format",
+                    );
                 }
-
-                ::zerocopy::FromBytes::ref_from_bytes(&data[..EXPECTED_SIZE])
-                    .map_err(|e| ::zero_postgres::Error::Decode(
-                        format!("RefFromRow zerocopy error: {:?}", e)
-                    ))
+                ::zero_postgres::conversion::ref_row::ref_from_data_row(row, WIRE_SIZES)
             }
         }
     };

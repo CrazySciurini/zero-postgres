@@ -726,8 +726,9 @@ impl Conn {
     ///
     /// ```ignore
     /// use zero_postgres::conversion::ref_row::{RefFromRow, LengthPrefixed, I64BE, I32BE};
+    /// use zerocopy::{FromBytes, Immutable, KnownLayout};
     ///
-    /// #[derive(RefFromRow)]
+    /// #[derive(FromBytes, KnownLayout, Immutable, RefFromRow)]
     /// #[repr(C, packed)]
     /// struct UserStats {
     ///     user_id: LengthPrefixed<I64BE>,
