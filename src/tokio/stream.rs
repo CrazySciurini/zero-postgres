@@ -30,11 +30,15 @@ impl Stream {
     ///
     /// Returns an error if this is not a TCP stream or if the TLS handshake fails.
     #[cfg(feature = "tokio-tls")]
-    pub async fn upgrade_to_tls(self, host: &str) -> Result<Self, crate::error::Error> {
+    pub async fn upgrade_to_tls(
+        self,
+        host: &str,
+        config: std::sync::Arc<rustls::ClientConfig>,
+    ) -> Result<Self, crate::error::Error> {
         match self {
             Stream::Tcp(buf_reader) => {
                 let tcp_stream = buf_reader.into_inner();
-                let connector = tokio_rustls::TlsConnector::from(crate::tls::client_config()?);
+                let connector = tokio_rustls::TlsConnector::from(config);
                 let tls_stream = connector
                     .connect(crate::tls::server_name(host)?, tcp_stream)
                     .await?;

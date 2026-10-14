@@ -99,7 +99,8 @@ impl Conn {
                 Action::TlsHandshake => {
                     #[cfg(feature = "sync-tls")]
                     {
-                        stream = stream.upgrade_to_tls(&options.host)?;
+                        let config = crate::tls::client_config(&options)?;
+                        stream = stream.upgrade_to_tls(&options.host, config)?;
                     }
                     #[cfg(not(feature = "sync-tls"))]
                     {

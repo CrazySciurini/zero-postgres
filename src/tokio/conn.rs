@@ -98,7 +98,8 @@ impl Conn {
                 Action::TlsHandshake => {
                     #[cfg(feature = "tokio-tls")]
                     {
-                        stream = stream.upgrade_to_tls(&options.host).await?;
+                        let config = crate::tls::client_config(&options)?;
+                        stream = stream.upgrade_to_tls(&options.host, config).await?;
                     }
                     #[cfg(not(feature = "tokio-tls"))]
                     {

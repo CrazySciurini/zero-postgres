@@ -62,6 +62,40 @@ pub struct Opts {
     /// Default: `TlsMode::Prefer`
     pub tls_mode: TlsMode,
 
+    /// rustls client config for TLS connections.
+    ///
+    /// Set this to trust a private CA or to present a client certificate.
+    /// Build the config with [`crate::rustls`] so that the rustls versions match,
+    /// and with the aws-lc-rs provider, which this crate uses:
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use std::sync::Arc;
+    /// use zero_postgres::rustls::pki_types::{pem::PemObject, CertificateDer};
+    /// use zero_postgres::rustls::{crypto::aws_lc_rs, ClientConfig, RootCertStore};
+    ///
+    /// let mut roots = RootCertStore::empty();
+    /// for cert in CertificateDer::pem_file_iter("/etc/myapp/db-ca.pem")? {
+    ///     roots.add(cert?)?;
+    /// }
+    /// let config = ClientConfig::builder_with_provider(Arc::new(aws_lc_rs::default_provider()))
+    ///     .with_safe_default_protocol_versions()?
+    ///     .with_root_certificates(roots)
+    ///     .with_no_client_auth();
+    ///
+    /// let mut opts = zero_postgres::Opts::default();
+    /// opts.tls_config = Some(Arc::new(config));
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// `None` uses the platform's native root certificates, loaded once and
+    /// shared by all connections.
+    ///
+    /// Default: `None`
+    #[cfg(any(feature = "sync-tls", feature = "tokio-tls", feature = "compio-tls"))]
+    pub tls_config: Option<Arc<rustls::ClientConfig>>,
+
     /// Additional connection parameters.
     ///
     /// Default: `[]`
@@ -99,6 +133,8 @@ impl Default for Opts {
             password: None,
             application_name: None,
             tls_mode: TlsMode::Prefer,
+            #[cfg(any(feature = "sync-tls", feature = "tokio-tls", feature = "compio-tls"))]
+            tls_config: None,
             params: Vec::new(),
             upgrade_to_unix_socket: true,
             pool_max_idle_conn: 100,

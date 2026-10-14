@@ -54,10 +54,14 @@ impl Stream {
     ///
     /// Returns an error if this is not a TCP stream or if the TLS handshake fails.
     #[cfg(feature = "compio-tls")]
-    pub async fn upgrade_to_tls(self, host: &str) -> Result<Self, crate::error::Error> {
+    pub async fn upgrade_to_tls(
+        self,
+        host: &str,
+        config: std::sync::Arc<rustls::ClientConfig>,
+    ) -> Result<Self, crate::error::Error> {
         match self.inner {
             StreamInner::Tcp(tcp_stream) => {
-                let connector = compio::tls::TlsConnector::from(crate::tls::client_config()?);
+                let connector = compio::tls::TlsConnector::from(config);
                 let tls_stream = connector.connect(host, tcp_stream).await?;
                 // Start with a fresh read buffer after TLS handshake;
                 // any pre-TLS buffered bytes are invalid in the TLS context.

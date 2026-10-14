@@ -50,3 +50,7 @@ pub use pipeline::Ticket;
 pub use state::action::AsyncMessage;
 pub use state::extended::PreparedStatement;
 pub use statement::{IntoStatement, StatementRef};
+
+/// The rustls version used for TLS, for building [`Opts::tls_config`].
+#[cfg(any(feature = "sync-tls", feature = "tokio-tls", feature = "compio-tls"))]
+pub use rustls;

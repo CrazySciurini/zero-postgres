@@ -2,6 +2,8 @@ use std::io::{BufReader, Read, Write};
 use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(feature = "sync-tls")]
+use std::sync::Arc;
 
 #[cfg(feature = "sync-tls")]
 use rustls::{ClientConnection, StreamOwned};
@@ -28,14 +30,15 @@ impl Stream {
     ///
     /// Returns an error if this is not a TCP stream or if the TLS handshake fails.
     #[cfg(feature = "sync-tls")]
-    pub fn upgrade_to_tls(self, host: &str) -> Result<Self, crate::error::Error> {
+    pub fn upgrade_to_tls(
+        self,
+        host: &str,
+        config: Arc<rustls::ClientConfig>,
+    ) -> Result<Self, crate::error::Error> {
         match self {
             Stream::Tcp(buf_reader) => {
                 let mut tcp_stream = buf_reader.into_inner();
-                let mut conn = ClientConnection::new(
-                    crate::tls::client_config()?,
-                    crate::tls::server_name(host)?,
-                )?;
+                let mut conn = ClientConnection::new(config, crate::tls::server_name(host)?)?;
                 // Finish the handshake now so that TLS errors surface here instead of
                 // on the first query.
                 while conn.is_handshaking() {
