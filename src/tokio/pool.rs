@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use crossbeam_queue::ArrayQueue;
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::error::{Error, Result};
 use crate::opts::Opts;
@@ -61,21 +61,29 @@ impl Pool {
         })
     }
 
-    async fn check_in(&self, mut conn: Conn) {
+    fn check_in(self: &Arc<Self>, mut conn: Conn, permit: Option<OwnedSemaphorePermit>) {
         if conn.is_broken() {
             return;
         }
-        if conn.query_drop("DISCARD ALL").await.is_err() {
+        // Without a runtime (e.g. during shutdown) the connection cannot be
+        // reset, so it is dropped instead of returned to the pool.
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
             return;
-        }
-        let _ = self.conns.push(conn);
+        };
+        let pool = Arc::clone(self);
+        handle.spawn(async move {
+            if conn.query_drop("DISCARD ALL").await.is_ok() {
+                let _ = pool.conns.push(conn);
+            }
+            drop(permit);
+        });
     }
 }
 
 pub struct PooledConn {
     pool: Arc<Pool>,
     conn: ManuallyDrop<Conn>,
-    permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    permit: Option<OwnedSemaphorePermit>,
 }
 
 impl Deref for PooledConn {
@@ -95,11 +103,6 @@ impl Drop for PooledConn {
     fn drop(&mut self) {
         // SAFETY: conn is never accessed after this
         let conn = unsafe { ManuallyDrop::take(&mut self.conn) };
-        let pool = Arc::clone(&self.pool);
-        let permit = self.permit.take();
-        tokio::spawn(async move {
-            pool.check_in(conn).await;
-            drop(permit);
-        });
+        self.pool.check_in(conn, self.permit.take());
     }
 }

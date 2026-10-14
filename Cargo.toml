@@ -27,7 +27,7 @@ with-time = ["dep:time"]
 with-chrono = ["dep:chrono"]
 with-rust-decimal = ["dep:rust_decimal"]
 lowlevel = []
-compio = ["dep:compio"]
+compio = ["dep:compio", "dep:async-lock"]
 compio-tls = ["compio/rustls", "dep:rustls", "dep:rustls-native-certs"]
 diesel = ["dep:diesel", "sync"]
 
@@ -43,6 +43,7 @@ rustls = { version = "0.23", optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 tokio-rustls = { version = "0.26", optional = true }
 compio = { version = "0.19", features = ["io", "net", "runtime", "macros"], optional = true }
+async-lock = { version = "3", optional = true }
 zerocopy = { version = "0.8", features = ["derive"] }
 sha2 = "0.11"
 hmac = "0.13"
