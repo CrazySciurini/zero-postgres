@@ -924,13 +924,58 @@ impl Conn {
 
     /// Execute a closure within a transaction.
     ///
-    /// If no explicit commit or rollback is called:
-    /// - If the closure returns `Ok`, the transaction is committed.
-    /// - If the closure returns `Err`, the transaction is rolled back.
+    /// # Implicit commit or rollback
     ///
-    /// # Errors
+    /// If no explicit `tx.commit()` or `tx.rollback()` is called:
+    /// - If the user closure returns `Ok`, the transaction is committed.
+    /// - If the user closure returns `Err`, the transaction is rolled back.
+    ///
+    /// # No nested transaction
     ///
     /// Returns `Error::InvalidUsage` if called while already in a transaction.
+    ///
+    /// # Error Examples
+    ///
+    /// ## User propagates the error
+    ///
+    /// ```
+    /// conn.transaction(|conn| {
+    ///     conn.query_drop("INSERT ...")?;
+    ///     conn.query_drop("INSERT ...")?;
+    ///     Ok(())
+    /// })
+    /// ```
+    ///
+    /// When a SQL statement fails, the closure returns the error, and the transaction is rolled back.
+    ///
+    /// ## User ignores the last error
+    ///
+    /// ```
+    /// conn.transaction(|conn| {
+    ///     if let Err(e) = conn.query_drop("some risky query ...") {
+    ///         log::error!(e);
+    ///     }
+    ///     Ok(())
+    /// })
+    /// ```
+    ///
+    /// The execution failure will be ignored, the closure returns Ok, the library sends 'COMMIT'.
+    /// 'COMMIT' in a failed transaction works as 'ROLLBACK' by the postgres server.
+    ///
+    /// ## User ignores the error and continue
+    ///
+    /// ```
+    /// conn.transaction(|conn| {
+    ///     if let Err(e) = conn.query_drop("some risky query ...") {
+    ///         log::error!(e);
+    ///     }
+    ///     conn.query_drop("another query")?; // error
+    ///     Ok(())
+    /// })
+    /// ```
+    ///
+    /// This is a bad code.
+    /// Once a transaction fails, the subsequent queries all return `ERROR:  current transaction is aborted, commands ignored until end of transaction block` with `SQLSTATE: 25P02`.
     pub fn transaction<F, R>(&mut self, f: F) -> Result<R>
     where
         F: FnOnce(&mut Conn, super::transaction::Transaction) -> Result<R>,

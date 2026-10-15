@@ -1265,13 +1265,7 @@ impl Conn {
 
     /// Execute a closure within a transaction.
     ///
-    /// If no explicit commit or rollback is called:
-    /// - If the closure returns `Ok`, the transaction is committed.
-    /// - If the closure returns `Err`, the transaction is rolled back.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::InvalidUsage` if called while already in a transaction.
+    /// See [`sync::Conn::transaction()`](crate::sync::Conn::transaction).
     pub async fn transaction<F, R>(&mut self, f: F) -> Result<R>
     where
         F: AsyncFnOnce(&mut Conn, super::transaction::Transaction) -> Result<R>,
