@@ -23,7 +23,6 @@ impl Transaction {
     /// Commit the transaction.
     ///
     /// This consumes the transaction and sends a COMMIT statement to the server.
-    /// The connection must be passed as an argument to execute the commit.
     ///
     /// # Errors
     ///

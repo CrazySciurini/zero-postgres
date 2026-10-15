@@ -6,9 +6,9 @@ use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use async_lock::{Semaphore, SemaphoreGuardArc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::opts::Opts;
 
 use super::Conn;
@@ -35,9 +35,17 @@ impl Pool {
     }
 
     pub async fn get(self: &Rc<Self>) -> Result<PooledConn> {
-        let permit = match &self.semaphore {
-            Some(sem) => Some(sem.acquire_arc().await),
-            None => None,
+        let permit = if let Some(sem) = &self.semaphore {
+            Some(
+                Arc::clone(sem)
+                    .acquire_owned()
+                    .await
+                    .map_err(|_unhelpful_err| {
+                        Error::LibraryBug("pool semaphore is closed".into())
+                    })?,
+            )
+        } else {
+            None
         };
         let conn = loop {
             let candidate = self.conns.borrow_mut().pop();
@@ -58,7 +66,7 @@ impl Pool {
         })
     }
 
-    fn check_in(self: &Rc<Self>, mut conn: Conn, permit: Option<SemaphoreGuardArc>) {
+    fn check_in(self: &Rc<Self>, mut conn: Conn, permit: Option<OwnedSemaphorePermit>) {
         if conn.is_broken() {
             return;
         }
@@ -81,7 +89,7 @@ impl Pool {
 pub struct PooledConn {
     pool: Rc<Pool>,
     conn: ManuallyDrop<Conn>,
-    permit: Option<SemaphoreGuardArc>,
+    permit: Option<OwnedSemaphorePermit>,
 }
 
 impl Deref for PooledConn {
