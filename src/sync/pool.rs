@@ -1,39 +1,42 @@
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
-
-use crossbeam_queue::ArrayQueue;
-use std_semaphore::Semaphore;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::error::Result;
 use crate::opts::Opts;
 
 use super::Conn;
+use super::semaphore::{Permit, Semaphore};
 
 pub struct Pool {
     opts: Opts,
-    conns: ArrayQueue<Conn>,
-    semaphore: Option<Semaphore>,
+    conns: Mutex<Vec<Conn>>,
+    max_idle: usize,
+    semaphore: Option<Arc<Semaphore>>,
 }
 
 impl Pool {
     pub fn new(opts: Opts) -> Self {
         let semaphore = opts
             .pool_max_concurrency
-            .map(|n| Semaphore::new(n as isize));
+            .map(|n| Arc::new(Semaphore::new(n)));
         Self {
-            conns: ArrayQueue::new(opts.pool_max_idle_conn),
+            conns: Mutex::new(Vec::new()),
+            max_idle: opts.pool_max_idle_conn,
             opts,
             semaphore,
         }
     }
 
     pub fn get(self: &Arc<Self>) -> Result<PooledConn> {
-        if let Some(sem) = &self.semaphore {
-            sem.acquire();
-        }
+        let permit = self.semaphore.as_ref().map(Semaphore::acquire);
         let conn = loop {
-            match self.conns.pop() {
+            let idle = self
+                .conns
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .pop();
+            match idle {
                 Some(mut c) => {
                     if c.ping().is_ok() {
                         break c;
@@ -46,6 +49,7 @@ impl Pool {
         Ok(PooledConn {
             conn: ManuallyDrop::new(conn),
             pool: Arc::clone(self),
+            permit,
         })
     }
 
@@ -56,13 +60,17 @@ impl Pool {
         if conn.query_drop("DISCARD ALL").is_err() {
             return;
         }
-        let _ = self.conns.push(conn);
+        let mut conns = self.conns.lock().unwrap_or_else(PoisonError::into_inner);
+        if conns.len() < self.max_idle {
+            conns.push(conn);
+        }
     }
 }
 
 pub struct PooledConn {
     pool: Arc<Pool>,
     conn: ManuallyDrop<Conn>,
+    permit: Option<Permit>,
 }
 
 impl Deref for PooledConn {
@@ -83,8 +91,7 @@ impl Drop for PooledConn {
         // SAFETY: conn is never accessed after this
         let conn = unsafe { ManuallyDrop::take(&mut self.conn) };
         self.pool.check_in(conn);
-        if let Some(sem) = &self.pool.semaphore {
-            sem.release();
-        }
+        // Release after check-in so the next permit holder reuses this connection.
+        drop(self.permit.take());
     }
 }

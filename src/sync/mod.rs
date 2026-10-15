@@ -4,6 +4,7 @@ mod conn;
 mod named_portal;
 mod pipeline;
 mod pool;
+mod semaphore;
 mod stream;
 mod transaction;
 mod unnamed_portal;
